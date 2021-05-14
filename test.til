@@ -1,0 +1,3 @@
+set result [exec ls /home]
+io.out "status: " <$result status>
+io.out "output: " <$result output>

@@ -1,0 +1,16 @@
+dub.selections.*
+
+*.so
+*.o
+*.a
+
+trace.*
+
+.dub
+docs.json
+__dummy.html
+til-test-*
+*.exe
+*.o
+*.obj
+*.lst
