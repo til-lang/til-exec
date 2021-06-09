@@ -1,3 +1,37 @@
-set result [exec ls /home]
-io.out "status: " <$result status>
-io.out "output: " <$result output>
+print "Both success and error:"
+exec ls "/etc" "/blobs"
+    | case (1 >line) {
+        print "$line"
+    } case (2 >line) {
+        print "error: $line"
+    } case (0 >code) {
+        print "return code: $code"
+    } case (>x >y) {
+        print "$x::$y"
+    }
+
+print "Success:"
+exec ls "/etc/default" | foreach line {
+    # set (source line) $line
+    set source <$line 0>
+    set line <$line 1>
+    print "$source> $line"
+}
+
+print "Error:"
+exec ls "/blobs" | foreach line {
+    # set (source line) $line
+    set source <$line 0>
+    set line <$line 1>
+    print "$source: $line"
+}
+
+print "case test:"
+range 3
+    | case (1) {
+        print "one"
+    } case (2) {
+        print "two"
+    } case (>x) {
+        print "$x"
+    }
