@@ -1,27 +1,39 @@
+import std.array;
 import std.process;
 import std.stdio : readln;
-import std.string : strip;
+import std.string;
 
 import til.nodes;
-import til.ranges;
 
 
-class OutputRange : Range
+CommandsMap systemProcessCommands;
+
+
+class SystemProcess : ListItem
 {
     ProcessPipes pipes;
     std.process.Pid pid;
-    CommandContext context;
-    Range inputStream;
+    ListItem inputStream;
     string[] command;
     int returnCode = 0;
-    bool running = true;
-    Dict processHandler;
+    bool _isRunning;
 
-    this(string[] command, Dict processHandler, CommandContext context)
+    auto type = ObjectType.SystemProcess;
+    auto typeName = "system_process";
+
+    bool isRunning()
     {
-        this.context = context;
-        this.processHandler = processHandler;
+        if (_isRunning)
+        {
+            _isRunning = !this.pid.tryWait().terminated;
+        }
+        return _isRunning;
+    }
+
+    this(string[] command, ListItem inputStream)
+    {
         this.command = command;
+        this.inputStream = inputStream;
 
         if (inputStream is null)
         {
@@ -31,110 +43,228 @@ class OutputRange : Range
         {
             pipes = pipeProcess(command, Redirect.all);
         }
+
         this.pid = pipes.pid;
+        this.commands = systemProcessCommands;
     }
 
-    override bool empty()
+    override string toString()
     {
-        if (!running) return true;
+        return this.command.join(" ");
+    }
 
-        if (pipes.stdout.eof && pipes.stderr.eof)
+    override Context next(Context context)
+    {
+        // For the output:
+        string line = null;
+
+        while (true)
         {
-            /*
-            If both stdout and stderr are closed but the
-            process is not terminated, then we ARE
-            going to return "yes, it's empty",
-            but must also block the current
-            Til process until the system
-            process is really
-            terminated:
-            */
-            while (!pid.tryWait().terminated)
+            // Send from inputStream, first:
+            if (inputStream !is null)
             {
-                context.yield();
+                auto inputContext = this.inputStream.next(context);
+                if (inputContext.exitCode == ExitCode.Break)
+                {
+                    this.inputStream = null;
+                    pipes.stdin.close();
+                    continue;
+                }
+                else if (inputContext.exitCode != ExitCode.Continue)
+                {
+                    auto msg = "Error while reading from " ~ this.toString();
+                    return context.error(msg, returnCode, "exec");
+                }
+
+                foreach (item; inputContext.items)
+                {
+                    string s = item.toString();
+                    pipes.stdin.writeln(s);
+                    pipes.stdin.flush();
+                }
+                continue;
             }
 
-            returnCode = pid.wait();
-            running = false;
-            processHandler["running"] = new BooleanAtom(false);
-            processHandler["return_code"] = new IntegerAtom(returnCode);
+            if (pipes.stdout.eof)
+            {
+                while (isRunning)
+                {
+                    context.yield();
+                }
 
-            return false;
+                wait();
+                _isRunning = false;
+
+                if (returnCode != 0)
+                {
+                    auto msg = "Error while executing " ~ this.toString();
+                    return context.error(msg, returnCode, "exec", this);
+                }
+                else
+                {
+                    context.exitCode = ExitCode.Break;
+                    return context;
+                }
+            }
+
+            line = pipes.stdout.readln();
+
+            if (line is null)
+            {
+                context.yield();
+                continue;
+            }
+            else
+            {
+                break;
+            }
         }
-        return false;
+
+        context.push(line.stripRight("\n"));
+        context.exitCode = ExitCode.Continue;
+        return context;
     }
-    override ListItem front()
+    void wait()
     {
-        if (!running)
+        returnCode = pid.wait();
+    }
+
+    override Context extract(Context context)
+    {
+        if (context.size == 0)
         {
-            return new SimpleList([
-                new IntegerAtom(0),
-                new IntegerAtom(returnCode)
-            ]);
+            context.push(this);
+            context.exitCode = ExitCode.CommandSuccess;
+            return context;
         }
 
-        string line = null;
-        int source;
+        string argument = context.pop!string();
 
-        while(line is null)
+        switch (argument)
+        {
+            case "is_running":
+                context.push(this.isRunning);
+                break;
+            case "command":
+                foreach (item; command)
+                {
+                    context.push(item);
+                }
+                break;
+            case "pid":
+                context.push(this.pid.processID());
+                break;
+            case "return_code":
+                if (this.isRunning)
+                {
+                    auto msg = "Process is still running";
+                    return context.error(msg, ErrorCode.RuntimeError, "");
+                }
+                else
+                {
+                    context.push(this.returnCode);
+                }
+                break;
+            case "error":
+                context.push(new SystemProcessError(this));
+                break;
+            default:
+                break;
+        }
+
+        context.exitCode = ExitCode.CommandSuccess;
+        return context;
+    }
+}
+
+class SystemProcessError : ListItem
+{
+    SystemProcess parent;
+    ProcessPipes pipes;
+    this(SystemProcess parent)
+    {
+        this.parent = parent;
+        this.pipes = parent.pipes;
+    }
+
+    override string toString()
+    {
+        return "error stream for " ~ this.parent.toString();
+    }
+
+    override Context next(Context context)
+    {
+        // For the output:
+        string line = null;
+
+        while (true)
         {
             if (!pipes.stderr.eof)
             {
                 line = pipes.stderr.readln();
-                // XXX : dont'like to say "2". It would be
-                // nice to get the fd number directly
-                // from pipes.stderr/stdout.
-                source = 2;
-            }
-
-            if (line is null && !pipes.stdout.eof)
-            {
-                line = pipes.stdout.readln();
-                source = 1;
-            }
-
-            if (line is null)
-            {
-                if (pipes.stdout.eof && pipes.stderr.eof)
+                if (line is null)
                 {
-                    source = -1;
-                    line = "";
+                    context.yield();
+                    continue;
+                }
+                else
+                {
                     break;
                 }
-                context.yield();
+            }
+            else 
+            {
+                context.exitCode = ExitCode.Break;
+                return context;
             }
         }
 
-        return new SimpleList([
-            new IntegerAtom(source),
-            new String(line.strip("\n"))
-        ]);
-    }
-    override void popFront()
-    {
+        context.push(line.stripRight("\n"));
+        context.exitCode = ExitCode.Continue;
+        return context;
     }
 }
 
-extern (C) CommandHandler[string] getCommands(Process escopo)
+
+extern (C) CommandsMap getCommands(Process escopo)
 {
-    CommandHandler[string] commands;
-
-    commands[null] = (string path, CommandContext context)
+    systemProcessCommands[null] = new Command((string path, Context context)
     {
-        string[] cmd = context.items!string;
 
-        auto processHandler = new Dict();
-        processHandler["command"] = new String(to!string(
-            cmd.map!(x => to!string(x)).join(" ")
-        ));
-        processHandler["running"] = new BooleanAtom(true);
+        string[] command;
+        ListItem inputStream;
 
-        context.stream = new OutputRange(cmd, processHandler, context);
-        context.push(processHandler);
+        if (context.inputSize == 1)
+        {
+            command = context.pop(context.size - 1).map!(x => to!string(x)).array;
+            inputStream = context.pop();
+        }
+        else if (context.inputSize > 1)
+        {
+            auto msg = path ~ ": cannot handle multiple inputs";
+            return context.error(msg, ErrorCode.InvalidInput, "");
+        }
+        else
+        {
+            command = context.items.map!(x => to!string(x)).array;
+        }
 
-        context.exitCode = ExitCode.CommandSuccess;
+        try
+        {
+            context.push(new SystemProcess(command, inputStream));
+        }
+        catch (ProcessException ex)
+        {
+            return context.error(ex.msg, ErrorCode.Unknown, "");
+        }
         return context;
-    };
+    });
+    systemProcessCommands["wait"] = new Command((string path, Context context)
+    {
+        auto p = context.pop!SystemProcess();
+        p.wait();
+        return context.push(p.returnCode);
+    });
 
-    return commands;
+    return systemProcessCommands;
 }
