@@ -1,4 +1,5 @@
-dub.selections.*
+til
+dist/*
 
 *.so
 *.o
@@ -7,6 +8,7 @@ dub.selections.*
 trace.*
 
 .dub
+dub.*
 docs.json
 __dummy.html
 til-test-*
