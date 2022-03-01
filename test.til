@@ -1,37 +1,25 @@
 print "Both success and error:"
-exec ls "/etc" "/blobs"
-    | case (1 >line) {
-        print "$line"
-    } case (2 >line) {
-        print "error: $line"
-    } case (0 >code) {
-        print "return code: $code"
-    } case (>x >y) {
-        print "$x::$y"
-    }
 
-print "Success:"
-exec ls "/etc/default" | foreach line {
-    # set (source line) $line
-    set source <$line 0>
-    set line <$line 1>
-    print "$source> $line"
+proc on.error (e) {
+    print "Error: $e " <$e class>
+    if (<$e class> == "exec") {
+        set process <$e object>
+        print "Process returned " <$process return_code>
+
+        extract $process error | foreach line {
+            print "error: $line"
+        }
+    } else {
+        return $e
+    }
 }
 
-print "Error:"
-exec ls "/blobs" | foreach line {
-    # set (source line) $line
-    set source <$line 0>
-    set line <$line 1>
-    print "$source: $line"
+exec ls /etc | foreach line {
+    print "output: $line"
+    break
 }
 
-print "case test:"
-range 3
-    | case (1) {
-        print "one"
-    } case (2) {
-        print "two"
-    } case (>x) {
-        print "$x"
-    }
+exec ls /blurbs | foreach line {
+    print "output: $line"
+    break
+}

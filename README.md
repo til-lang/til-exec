@@ -9,12 +9,20 @@ Run system programs using [Til](https://til-lang.github.io/til/).
 (That is: the module name itself.)
 
 ```tcl
-exec ls /etc
-    | case (2 >line) {
-        print "error: $line"
-    } case (1 >line) {
-        print "output: $line"
-    } case (0 >status) {
-        print "exit status: $status"
+proc on.error (e) {
+    if (<$e class> == "exec") {
+        set process <$e object>
+        print "Process returned " <$process return_code>
+
+        extract $process error | foreach line {
+            print "error: $line"
+        }
+    } else {
+        return $e
     }
+}
+
+exec ls /etc | foreach line {
+    print "output: $line"
+}
 ```

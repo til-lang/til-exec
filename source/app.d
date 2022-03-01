@@ -128,53 +128,6 @@ class SystemProcess : ListItem
     {
         returnCode = pid.wait();
     }
-
-    override Context extract(Context context)
-    {
-        if (context.size == 0)
-        {
-            context.push(this);
-            context.exitCode = ExitCode.CommandSuccess;
-            return context;
-        }
-
-        string argument = context.pop!string();
-
-        switch (argument)
-        {
-            case "is_running":
-                context.push(this.isRunning);
-                break;
-            case "command":
-                foreach (item; command)
-                {
-                    context.push(item);
-                }
-                break;
-            case "pid":
-                context.push(this.pid.processID());
-                break;
-            case "return_code":
-                if (this.isRunning)
-                {
-                    auto msg = "Process is still running";
-                    return context.error(msg, ErrorCode.RuntimeError, "");
-                }
-                else
-                {
-                    context.push(this.returnCode);
-                }
-                break;
-            case "error":
-                context.push(new SystemProcessError(this));
-                break;
-            default:
-                break;
-        }
-
-        context.exitCode = ExitCode.CommandSuccess;
-        return context;
-    }
 }
 
 class SystemProcessError : ListItem
@@ -230,7 +183,6 @@ extern (C) CommandsMap getCommands(Process escopo)
 {
     systemProcessCommands[null] = new Command((string path, Context context)
     {
-
         string[] command;
         ListItem inputStream;
 
@@ -242,7 +194,7 @@ extern (C) CommandsMap getCommands(Process escopo)
         else if (context.inputSize > 1)
         {
             auto msg = path ~ ": cannot handle multiple inputs";
-            return context.error(msg, ErrorCode.InvalidInput, "");
+            return context.error(msg, ErrorCode.InvalidInput, "exec");
         }
         else
         {
@@ -255,8 +207,51 @@ extern (C) CommandsMap getCommands(Process escopo)
         }
         catch (ProcessException ex)
         {
-            return context.error(ex.msg, ErrorCode.Unknown, "");
+            return context.error(ex.msg, ErrorCode.Unknown, "exec");
         }
+        return context;
+    });
+    systemProcessCommands["extract"] = new Command((string path, Context context)
+    {
+
+        SystemProcess target = context.pop!SystemProcess();
+
+        if (context.size == 0) return context;
+        string argument = context.pop!string();
+
+        switch (argument)
+        {
+            case "is_running":
+                context.push(target.isRunning);
+                break;
+            case "command":
+                foreach (item; target.command)
+                {
+                    context.push(item);
+                }
+                break;
+            case "pid":
+                context.push(target.pid.processID());
+                break;
+            case "return_code":
+                if (target.isRunning)
+                {
+                    auto msg = "Process is still running";
+                    return context.error(msg, ErrorCode.RuntimeError, "");
+                }
+                else
+                {
+                    context.push(target.returnCode);
+                }
+                break;
+            case "error":
+                context.push(new SystemProcessError(target));
+                break;
+            default:
+                break;
+        }
+
+        context.exitCode = ExitCode.CommandSuccess;
         return context;
     });
     systemProcessCommands["wait"] = new Command((string path, Context context)
