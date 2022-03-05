@@ -179,7 +179,7 @@ class SystemProcessError : ListItem
 }
 
 
-extern (C) CommandsMap getCommands(Process escopo)
+extern (C) CommandsMap getCommands(Escopo escopo)
 {
     systemProcessCommands[null] = new Command((string path, Context context)
     {
