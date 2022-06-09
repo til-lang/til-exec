@@ -70,6 +70,10 @@ class SystemProcess : ListItem
                     pipes.stdin.close();
                     continue;
                 }
+                else if (inputContext.exitCode == ExitCode.Skip)
+                {
+                    continue;
+                }
                 else if (inputContext.exitCode != ExitCode.Continue)
                 {
                     auto msg = "Error while reading from " ~ this.toString();
@@ -87,9 +91,10 @@ class SystemProcess : ListItem
 
             if (pipes.stdout.eof)
             {
-                while (isRunning)
+                if (isRunning)
                 {
-                    context.yield();
+                    context.exitCode = ExitCode.Skip;
+                    return context;
                 }
 
                 wait();
@@ -111,8 +116,8 @@ class SystemProcess : ListItem
 
             if (line is null)
             {
-                context.yield();
-                continue;
+                context.exitCode = ExitCode.Skip;
+                return context;
             }
             else
             {
@@ -157,8 +162,8 @@ class SystemProcessError : ListItem
                 line = pipes.stderr.readln();
                 if (line is null)
                 {
-                    context.yield();
-                    continue;
+                    context.exitCode = ExitCode.Skip;
+                    return context;
                 }
                 else
                 {
@@ -251,7 +256,7 @@ extern (C) CommandsMap getCommands(Escopo escopo)
                 break;
         }
 
-        context.exitCode = ExitCode.CommandSuccess;
+        context.exitCode = ExitCode.Success;
         return context;
     });
     systemProcessCommands["wait"] = new Command((string path, Context context)
